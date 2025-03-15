@@ -1,6 +1,16 @@
-# Directory Structure Scanner
+# Directory Structure Scanner - DirectoryX
 
-A utility for scanning directory structures and generating reports in various formats.
+A utility for scanning directory structures and generating reports in various formats, specifically designed to prepare multi-file code projects for Large Language Models (LLMs).
+
+## Purpose
+
+This tool helps developers prepare their multi-file projects for effective processing by LLMs by:
+- Creating a clear text representation of directory structures
+- Combining multiple source files into a single document with proper path references
+- Generating detailed metadata about files to provide context
+- Producing outputs in formats easily digestible by language models
+
+LLMs typically work best with consolidated information rather than separate files. This scanner creates a unified context that preserves file relationships and structure, allowing models to better understand the project architecture.
 
 ## Features
 
@@ -82,6 +92,12 @@ Includes the content of all text files, formatted as follows:
 
 ## Use Cases
 
+### Preparing Code for LLM Analysis
+
+```bash
+python directory_scanner.py /path/to/project --exclude node_modules .git build dist
+```
+
 ### Scanning Project Source Code
 
 ```bash
@@ -100,4 +116,4 @@ python directory_scanner.py /path/to/documentation --exclude-ext pdf docx
 
 ## Author
 
-Your Name - youremail@example.com
+Yuri - wku@ukr.net
