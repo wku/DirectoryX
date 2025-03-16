@@ -52,8 +52,44 @@ class DirectoryScanner:
         self.files: List[FileInfo] = []
         self.directories: List[str] = []
         self.scan_time = datetime.datetime.now ()
-        # Директории и файлы, которые следует исключить
-        self.excluded_dirs = ['__pycache__']
+
+        # Предопределенные списки исключений
+        # Директории, которые следует исключить
+        self.excluded_dirs = [
+            '__pycache__',
+            '.git',
+            '.idea',
+            'venv',
+            'node_modules',
+            '.vscode'
+        ]
+
+        # Файлы, которые следует исключить (по имени)
+        self.excluded_files = [
+            '.DS_Store',
+            'Thumbs.db',
+            '.gitignore',
+            '.gitattributes',
+            '.env',
+            'requirements.txt',
+        ]
+
+        # Расширения файлов, которые следует исключить
+        self.excluded_extensions = [
+            '.pyc',
+            '.pyo',
+            '.pyd',
+            '.so',
+            '.dll',
+            '.exe',
+            '.obj',
+            '.o',
+            '.a',
+            '.lib',
+            '.swp',
+            '.class',
+            '.txt'
+        ]
 
         if not os.path.exists (self.root_path):
             raise ValueError (f"Директория не существует: {self.root_path}")
@@ -64,6 +100,21 @@ class DirectoryScanner:
 
         # Имя корневой директории для использования в именах файлов
         self.root_dir_name = os.path.basename (self.root_path)
+
+    def should_exclude_file(self, file_path: str) -> bool:
+        """Проверяет, должен ли файл быть исключен из сканирования"""
+        file_name = os.path.basename (file_path)
+        file_ext = os.path.splitext (file_name)[1].lower ()
+
+        # Проверка по имени файла
+        if file_name in self.excluded_files:
+            return True
+
+        # Проверка по расширению файла
+        if file_ext in self.excluded_extensions:
+            return True
+
+        return False
 
     def scan(self) -> None:
         """Рекурсивное сканирование директории"""
@@ -77,9 +128,13 @@ class DirectoryScanner:
             if rel_path != '.':
                 self.directories.append (rel_path)
 
-            # Добавление файлов
+            # Добавление файлов с учетом исключений
             for file in files:
                 file_path = os.path.join (root, file)
+                # Пропускаем файлы, которые должны быть исключены
+                if self.should_exclude_file (file_path):
+                    continue
+
                 rel_file_path = os.path.relpath (file_path, self.root_path)
                 self.files.append (FileInfo (file_path, rel_file_path))
 
@@ -183,6 +238,20 @@ class ReportGenerator:
         md_content.extend (self._generate_md_tree (tree))
         md_content.append ("```")
 
+        # Добавление информации об исключенных элементах
+        md_content.append ("\n## Исключенные элементы")
+        md_content.append ("\n### Исключенные директории")
+        for dir_name in self.scanner.excluded_dirs:
+            md_content.append (f"- {dir_name}")
+
+        md_content.append ("\n### Исключенные файлы")
+        for file_name in self.scanner.excluded_files:
+            md_content.append (f"- {file_name}")
+
+        md_content.append ("\n### Исключенные расширения")
+        for ext in self.scanner.excluded_extensions:
+            md_content.append (f"- {ext}")
+
         # Запись в файл
         with open (self.md_path, 'w', encoding='utf-8') as f:
             f.write ('\n'.join (md_content))
@@ -197,6 +266,11 @@ class ReportGenerator:
             'root_directory': self.scanner.root_path,
             'directories_count': len (self.scanner.directories),
             'files_count': len (self.scanner.files),
+            'exclusions': {
+                'excluded_directories': self.scanner.excluded_dirs,
+                'excluded_files': self.scanner.excluded_files,
+                'excluded_extensions': self.scanner.excluded_extensions
+            },
             'directories': self.scanner.directories,
             'files': [file_info.to_dict () for file_info in self.scanner.files]
         }
@@ -237,6 +311,10 @@ class ReportGenerator:
             for file_info in sorted_files:
                 file_extension = os.path.splitext (file_info.file_name)[1].lower ()
 
+                # Пропускаем файлы с расширениями, которые следует исключить
+                if file_extension in self.scanner.excluded_extensions:
+                    continue
+
                 # Пропускаем бинарные файлы
                 if file_extension not in text_extensions:
                     continue
@@ -268,9 +346,10 @@ def main() -> None:
     """Главная функция программы"""
     parser = argparse.ArgumentParser (description='Сканер структуры директорий')
     parser.add_argument ('path', help='Путь к директории для сканирования')
-    parser.add_argument ('--exclude', nargs='+', help='Дополнительные директории для исключения')
+    parser.add_argument ('--exclude-dirs', nargs='+', help='Дополнительные директории для исключения')
+    parser.add_argument ('--exclude-files', nargs='+', help='Файлы для исключения')
+    parser.add_argument ('--exclude-ext', nargs='+', help='Расширения файлов для исключения (с точкой, например .pdf)')
     parser.add_argument ('--no-content', action='store_true', help='Не создавать файл с содержимым')
-    parser.add_argument ('--exclude-ext', nargs='+', help='Расширения файлов для исключения (без точки)')
     args = parser.parse_args ()
 
     try:
@@ -278,9 +357,21 @@ def main() -> None:
         scanner = DirectoryScanner (args.path)
 
         # Добавление дополнительных исключений, если они указаны
-        if args.exclude:
-            scanner.excluded_dirs.extend (args.exclude)
-            print (f"Исключаемые директории: {', '.join (scanner.excluded_dirs)}")
+        if args.exclude_dirs:
+            scanner.excluded_dirs.extend (args.exclude_dirs)
+            print (f"Дополнительные исключаемые директории: {', '.join (args.exclude_dirs)}")
+
+        if args.exclude_files:
+            scanner.excluded_files.extend (args.exclude_files)
+            print (f"Дополнительные исключаемые файлы: {', '.join (args.exclude_files)}")
+
+        if args.exclude_ext:
+            scanner.excluded_extensions.extend (args.exclude_ext)
+            print (f"Дополнительные исключаемые расширения: {', '.join (args.exclude_ext)}")
+
+        print (f"Всего исключаемых директорий: {len (scanner.excluded_dirs)}")
+        print (f"Всего исключаемых файлов: {len (scanner.excluded_files)}")
+        print (f"Всего исключаемых расширений: {len (scanner.excluded_extensions)}")
 
         scanner.scan ()
 
