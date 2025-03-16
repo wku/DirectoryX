@@ -6,6 +6,9 @@ import hashlib
 import argparse
 import yaml
 import datetime
+import re
+import tokenize
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -281,10 +284,50 @@ class ReportGenerator:
 
         print (f"YAML отчет сохранен: {self.yaml_path}")
 
-    def generate_content_report(self) -> None:
-        """Генерирует отчет с содержимым всех файлов в формате markdown"""
-        import re
+    def remove_python_comments_and_docstrings(self, source_code: str) -> str:
+        """Удаляет комментарии и строки документации из Python кода"""
+        # Преобразуем исходный код в байтовую строку для tokenize
+        source_bytes = source_code.encode ('utf-8')
 
+        # Получаем все токены из кода
+        tokens = list (tokenize.tokenize (BytesIO (source_bytes).readline))
+
+        # Создаем буфер для хранения обработанного кода
+        result = []
+        skip_tokens = False
+
+        # Проход по всем токенам
+        i = 0
+        while i < len (tokens):
+            token = tokens[i]
+            token_type = token.type
+            token_string = token.string
+
+            # Пропускаем комментарии
+            if token_type == tokenize.COMMENT:
+                i += 1
+                continue
+
+            # Проверяем на наличие docstring
+            if (token_type == tokenize.STRING and
+                    (i == 0 or tokens[i - 1].type == tokenize.INDENT or
+                     (tokens[i - 1].type == tokenize.NL and
+                      i >= 2 and tokens[i - 2].type in (tokenize.NEWLINE, tokenize.INDENT)))):
+                # Если это похоже на docstring, пропускаем его
+                i += 1
+                continue
+
+            # Добавляем все остальные токены
+            if token_type != tokenize.ENCODING:  # Пропускаем токен кодировки
+                result.append (token_string)
+
+            i += 1
+
+        return ''.join (result)
+
+    def generate_content_report(self) -> None:
+        """Генерирует отчет с содержимым всех файлов в формате markdown,
+        удаляя комментарии и docstrings для Python файлов"""
         # Регулярные выражения для обработки текста
         multiple_spaces_pattern = re.compile (r' {2,}')
         multiple_newlines_pattern = re.compile (r'\n{3,}')
@@ -326,6 +369,14 @@ class ReportGenerator:
                     # Чтение содержимого файла
                     with open (file_info.path, 'r', encoding='utf-8', errors='replace') as content_file:
                         content = content_file.read ()
+
+                        # Обработка Python файлов - удаление комментариев и docstrings
+                        if file_extension == '.py':
+                            try:
+                                content = self.remove_python_comments_and_docstrings (content)
+                            except Exception as e:
+                                print (f"Ошибка при удалении комментариев из Python файла {file_info.path}: {str (e)}")
+                                # Если произошла ошибка, используем оригинальный текст
 
                         # Обработка содержимого: удаление лишних пробелов и пустых строк
                         content = multiple_spaces_pattern.sub (' ', content)
