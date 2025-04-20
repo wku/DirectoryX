@@ -285,43 +285,72 @@ class ReportGenerator:
         print (f"YAML отчет сохранен: {self.yaml_path}")
 
     def remove_python_comments_and_docstrings(self, source_code: str) -> str:
-        """Удаляет комментарии и строки документации из Python кода"""
+        """Удаляет комментарии и строки документации из Python кода, сохраняя форматирование"""
         # Преобразуем исходный код в байтовую строку для tokenize
         source_bytes = source_code.encode ('utf-8')
+
+        # Создаем словарь для хранения токенов по их позициям
+        token_dict = {}
 
         # Получаем все токены из кода
         tokens = list (tokenize.tokenize (BytesIO (source_bytes).readline))
 
-        # Создаем буфер для хранения обработанного кода
-        result = []
-        skip_tokens = False
-
-        # Проход по всем токенам
-        i = 0
-        while i < len (tokens):
-            token = tokens[i]
+        # Фильтруем токены, исключая комментарии и docstrings
+        for token in tokens:
             token_type = token.type
             token_string = token.string
 
             # Пропускаем комментарии
             if token_type == tokenize.COMMENT:
-                i += 1
                 continue
 
             # Проверяем на наличие docstring
             if (token_type == tokenize.STRING and
-                    (i == 0 or tokens[i - 1].type == tokenize.INDENT or
-                     (tokens[i - 1].type == tokenize.NL and
-                      i >= 2 and tokens[i - 2].type in (tokenize.NEWLINE, tokenize.INDENT)))):
+                    (token.start[1] == 0 or tokens[tokens.index (token) - 1].type == tokenize.INDENT or
+                     (tokens[tokens.index (token) - 1].type == tokenize.NL and
+                      tokens.index (token) >= 2 and tokens[tokens.index (token) - 2].type in (tokenize.NEWLINE, tokenize.INDENT)))):
                 # Если это похоже на docstring, пропускаем его
-                i += 1
                 continue
 
-            # Добавляем все остальные токены
+            # Сохраняем все остальные токены
             if token_type != tokenize.ENCODING:  # Пропускаем токен кодировки
-                result.append (token_string)
+                token_dict[token.start] = token_string
 
-            i += 1
+        # Воссоздаем исходный код строка за строкой
+        result = []
+        current_line = 1
+        current_col = 0
+
+        # Сортируем токены по их позициям
+        sorted_positions = sorted (token_dict.keys ())
+
+        for pos in sorted_positions:
+            line, col = pos
+            token_str = token_dict[pos]
+
+            # Добавляем пропущенные строки
+            while current_line < line:
+                result.append ('\n')
+                current_line += 1
+                current_col = 0
+
+            # Добавляем пробелы до текущего токена
+            if current_line == line and current_col < col:
+                result.append (' ' * (col - current_col))
+
+            # Добавляем токен
+            result.append (token_str)
+
+            # Обновляем текущую позицию
+            if '\n' in token_str:
+                lines = token_str.split ('\n')
+                current_line += lines.count ('\n')
+                if lines[-1]:
+                    current_col = len (lines[-1])
+                else:
+                    current_col = 0
+            else:
+                current_col += len (token_str)
 
         return ''.join (result)
 
