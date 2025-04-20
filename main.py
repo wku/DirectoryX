@@ -285,74 +285,88 @@ class ReportGenerator:
         print (f"YAML отчет сохранен: {self.yaml_path}")
 
     def remove_python_comments_and_docstrings(self, source_code: str) -> str:
-        """Удаляет комментарии и строки документации из Python кода, сохраняя форматирование"""
-        # Преобразуем исходный код в байтовую строку для tokenize
-        source_bytes = source_code.encode ('utf-8')
+        """Удаляет комментарии и строки документации из Python кода с сохранением форматирования"""
+        # Разбиваем код на строки
+        lines = source_code.splitlines ()
 
-        # Создаем словарь для хранения токенов по их позициям
-        token_dict = {}
+        # Результирующие строки
+        result_lines = []
 
-        # Получаем все токены из кода
-        tokens = list (tokenize.tokenize (BytesIO (source_bytes).readline))
+        # Флаги для отслеживания многострочных комментариев/docstrings
+        in_triple_quotes = False
+        triple_quote_type = None
+        docstring_indentation = 0
+        skip_next_line = False
 
-        # Фильтруем токены, исключая комментарии и docstrings
-        for token in tokens:
-            token_type = token.type
-            token_string = token.string
-
-            # Пропускаем комментарии
-            if token_type == tokenize.COMMENT:
+        for i, line in enumerate (lines):
+            # Пропускаем строку, если флаг установлен
+            if skip_next_line:
+                skip_next_line = False
                 continue
 
-            # Проверяем на наличие docstring
-            if (token_type == tokenize.STRING and
-                    (token.start[1] == 0 or tokens[tokens.index (token) - 1].type == tokenize.INDENT or
-                     (tokens[tokens.index (token) - 1].type == tokenize.NL and
-                      tokens.index (token) >= 2 and tokens[tokens.index (token) - 2].type in (tokenize.NEWLINE, tokenize.INDENT)))):
-                # Если это похоже на docstring, пропускаем его
-                continue
+            # Если мы не внутри многострочной строки/docstring
+            if not in_triple_quotes:
+                # Проверяем, является ли строка полностью комментарием или пустой
+                stripped_line = line.strip ()
 
-            # Сохраняем все остальные токены
-            if token_type != tokenize.ENCODING:  # Пропускаем токен кодировки
-                token_dict[token.start] = token_string
+                # Пропускаем комментарии
+                if stripped_line.startswith ('#'):
+                    continue
 
-        # Воссоздаем исходный код строка за строкой
-        result = []
-        current_line = 1
-        current_col = 0
+                # Проверяем наличие triple quotes
+                if '"""' in stripped_line or "'''" in stripped_line:
+                    # Определяем тип кавычек
+                    if '"""' in stripped_line:
+                        quote_type = '"""'
+                    else:
+                        quote_type = "'''"
 
-        # Сортируем токены по их позициям
-        sorted_positions = sorted (token_dict.keys ())
+                    # Проверяем, не является ли это частью docstring
+                    if stripped_line.startswith (quote_type):
+                        # Проверяем, может ли это быть docstring
+                        if i > 0:
+                            prev_line = lines[i - 1].strip ()
+                            if prev_line.startswith ('def ') or prev_line.startswith ('class ') or prev_line.endswith (':'):
+                                # Это начало docstring
+                                in_triple_quotes = True
+                                triple_quote_type = quote_type
+                                docstring_indentation = len (line) - len (line.lstrip ())
+                                continue
 
-        for pos in sorted_positions:
-            line, col = pos
-            token_str = token_dict[pos]
+                    # Проверяем, не заканчивается ли тройная кавычка в той же строке
+                    if stripped_line.count (quote_type) == 2:
+                        # Если строка содержит только docstring, пропускаем её
+                        if stripped_line.startswith (quote_type) and stripped_line.endswith (quote_type) and len (stripped_line) > 6:
+                            continue
 
-            # Добавляем пропущенные строки
-            while current_line < line:
-                result.append ('\n')
-                current_line += 1
-                current_col = 0
+                    # Удаляем комментарии из этой строки
+                    comment_pos = line.find ('#')
+                    if comment_pos != -1:
+                        line = line[:comment_pos]
 
-            # Добавляем пробелы до текущего токена
-            if current_line == line and current_col < col:
-                result.append (' ' * (col - current_col))
+                    # Добавляем строку в результат
+                    result_lines.append (line.rstrip ())
 
-            # Добавляем токен
-            result.append (token_str)
-
-            # Обновляем текущую позицию
-            if '\n' in token_str:
-                lines = token_str.split ('\n')
-                current_line += lines.count ('\n')
-                if lines[-1]:
-                    current_col = len (lines[-1])
                 else:
-                    current_col = 0
-            else:
-                current_col += len (token_str)
+                    # Удаляем комментарии из строки
+                    comment_pos = line.find ('#')
+                    if comment_pos != -1:
+                        line = line[:comment_pos]
 
-        return ''.join (result)
+                    # Добавляем строку в результат
+                    result_lines.append (line.rstrip ())
+
+            else:
+                # Мы внутри многострочного docstring
+                # Проверяем, заканчивается ли он в этой строке
+                if triple_quote_type in line:
+                    # Docstring закончился
+                    in_triple_quotes = False
+                    triple_quote_type = None
+                # Не добавляем строки, которые являются частью docstring
+
+        # Объединяем строки с сохранением разделителей
+        return '\n'.join (result_lines)
 
     def generate_content_report(self) -> None:
         """Генерирует отчет с содержимым всех файлов в формате markdown,
